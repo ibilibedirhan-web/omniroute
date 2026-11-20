@@ -1,37 +1,57 @@
 "use client";
 
+import { useTranslations } from "next-intl";
+import { DataTableShell } from "@omniroute/ui-kit/data-table-shell";
+import { TableLoadingRegion } from "@omniroute/ui-kit/table-loading";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@omniroute/ui-kit/table";
+import { cn } from "@/shared/utils/cn";
+import EmptyState from "./EmptyState";
+import InteractiveTableRow from "./InteractiveTableRow";
+
 /**
- * DataTable — Shared UI primitive (T-29)
+ * DataTable — adapter over the kit `DataTableShell` + `Table` (KEA-7886).
  *
- * Configurable data table with sticky header, row click,
- * and optional loading/empty states. Extracts the shared
- * table rendering pattern from RequestLoggerV2 and ProxyLogger.
+ * Sticky header, row click (mouse + Enter/Space), selected row, loading overlay and
+ * empty state. Shared by RequestLoggerV2, ProxyLogger and similar tables.
  *
  * Usage:
  *   <DataTable
+ *     label={t("logsTable")}
  *     columns={visibleColumns}
  *     data={filteredLogs}
  *     renderCell={(row, column) => <span>{row[column.key]}</span>}
  *     onRowClick={(row) => openDetail(row)}
  *     selectedId={selectedLog?.id}
  *     loading={isLoading}
- *     emptyIcon="📋"
+ *     emptyIcon="inbox"
  *     emptyMessage="No logs found"
  *   />
  */
 
-interface DataTableColumn {
+export interface DataTableColumn {
   key: string;
   label: string;
   maxWidth?: string;
 }
 
-interface DataTableRow {
+export interface DataTableRow {
   id?: string | number;
   [key: string]: unknown;
 }
 
 interface DataTableProps {
+  /**
+   * Accessible name of the table's scroll region (a translated string). The kit makes the
+   * capped container a focusable region while it overflows, and this names it.
+   */
+  label: string;
   columns?: DataTableColumn[];
   data?: DataTableRow[];
   renderCell: (row: DataTableRow, column: DataTableColumn) => React.ReactNode;
@@ -39,12 +59,20 @@ interface DataTableProps {
   onRowClick?: (row: DataTableRow) => void;
   selectedId?: string | number;
   loading?: boolean;
+  /** Kit `Table` `maxHeight`: rows scroll under a pinned header, keyboard-focusable. */
   maxHeight?: string;
   emptyIcon?: string;
   emptyMessage?: string;
+  /**
+   * Draw the table's own frame (the kit `DataTableShell`). Pass `false` when a `Card`
+   * already frames the table, so the two borders do not stack (issue 19620): the card is the
+   * frame, and the adapter keeps the kit loading region and a borderless table.
+   */
+  framed?: boolean;
 }
 
 export default function DataTable({
+  label,
   columns = [],
   data = [],
   renderCell,
@@ -53,129 +81,68 @@ export default function DataTable({
   selectedId,
   loading = false,
   maxHeight = "calc(100vh - 320px)",
-  emptyIcon = "📭",
-  emptyMessage = "No data found",
+  emptyIcon = "inbox",
+  emptyMessage,
+  framed = true,
 }: DataTableProps) {
-  if (loading) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "48px 24px",
-          color: "var(--text-secondary, #888)",
-          fontSize: "14px",
-        }}
-      >
-        <span style={{ animation: "spin 1s linear infinite", marginRight: "8px" }}>⏳</span>
-        Loading...
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    );
-  }
-
-  if (data.length === 0) {
-    return (
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: "48px 24px",
-          color: "var(--text-secondary, #888)",
-          fontSize: "14px",
-        }}
-      >
-        <span style={{ fontSize: "32px", marginBottom: "8px", opacity: 0.6 }}>{emptyIcon}</span>
-        {emptyMessage}
-      </div>
-    );
-  }
+  const t = useTranslations("common");
+  const resolvedEmptyMessage = emptyMessage ?? t("noData");
+  const hasRows = data.length > 0;
+  // Both take `loading` + `loadingLabel`; only the shell draws a border around the table.
+  const Frame = framed ? DataTableShell : TableLoadingRegion;
 
   return (
-    <div style={{ overflow: "auto", maxHeight, borderRadius: "8px" }}>
-      <table
-        style={{
-          width: "100%",
-          borderCollapse: "collapse",
-          fontSize: "12px",
-          tableLayout: "auto",
-        }}
-      >
-        <thead>
-          <tr>
-            {columns.map((col) => (
-              <th
-                key={col.key}
-                style={{
-                  padding: "8px 10px",
-                  textAlign: "left",
-                  fontWeight: 600,
-                  color: "var(--text-secondary, #888)",
-                  borderBottom: "1px solid rgba(255,255,255,0.08)",
-                  position: "sticky",
-                  top: 0,
-                  background: "var(--bg-table-header, rgba(15,15,25,0.95))",
-                  zIndex: 1,
-                  whiteSpace: "nowrap",
-                  fontSize: "11px",
-                  textTransform: "uppercase",
-                  letterSpacing: "0.5px",
-                }}
-              >
-                {renderHeader ? renderHeader(col) : col.label}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {data.map((row, idx) => (
-            <tr
-              key={row.id || idx}
-              onClick={() => onRowClick?.(row)}
-              style={{
-                cursor: onRowClick ? "pointer" : "default",
-                background:
-                  row.id === selectedId
-                    ? "rgba(99,102,241,0.1)"
-                    : idx % 2 === 0
-                      ? "transparent"
-                      : "rgba(255,255,255,0.02)",
-                transition: "background 0.15s",
-              }}
-              onMouseEnter={(e) => {
-                if (row.id !== selectedId) {
-                  e.currentTarget.style.background = "rgba(255,255,255,0.04)";
-                }
-              }}
-              onMouseLeave={(e) => {
-                if (row.id !== selectedId) {
-                  e.currentTarget.style.background =
-                    idx % 2 === 0 ? "transparent" : "rgba(255,255,255,0.02)";
-                }
-              }}
-            >
+    <Frame loading={loading} loadingLabel={t("loading")}>
+      {!hasRows && !loading ? (
+        <EmptyState icon={emptyIcon} title={resolvedEmptyMessage} />
+      ) : !hasRows ? (
+        // Room for the loading overlay before the first rows arrive.
+        <div className="min-h-[12rem]" />
+      ) : (
+        // The kit Table owns the scroll container (maxHeight): it scrolls both axes, pins the
+        // header row and becomes a named tab stop while it overflows (kit 0.0.116). min-w-0:
+        // narrow tables keep their auto width (the kit floors .ci-table at 40rem).
+        <Table
+          className="min-w-0"
+          maxHeight={maxHeight}
+          scrollLabel={label}
+          persistentScrollbars={false}
+          containerClassName={cn(!framed && "rounded-none border-0")}
+        >
+          <TableHeader>
+            <TableRow>
               {columns.map((col) => (
-                <td
-                  key={col.key}
-                  style={{
-                    padding: "6px 10px",
-                    borderBottom: "1px solid rgba(255,255,255,0.04)",
-                    whiteSpace: "nowrap",
-                    maxWidth: col.maxWidth || "200px",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {renderCell(row, col)}
-                </td>
+                <TableHead key={col.key} className="whitespace-nowrap">
+                  {renderHeader ? renderHeader(col) : col.label}
+                </TableHead>
               ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.map((row, idx) => {
+              const selected = selectedId !== undefined && row.id === selectedId;
+              return (
+                <InteractiveTableRow
+                  key={row.id || idx}
+                  onActivate={onRowClick && (() => onRowClick(row))}
+                  selected={selected}
+                  className={cn(onRowClick && "cursor-pointer")}
+                >
+                  {columns.map((col) => (
+                    <TableCell
+                      key={col.key}
+                      className="overflow-hidden text-ellipsis whitespace-nowrap"
+                      style={{ maxWidth: col.maxWidth || "200px" }}
+                    >
+                      {renderCell(row, col)}
+                    </TableCell>
+                  ))}
+                </InteractiveTableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </Frame>
   );
 }
